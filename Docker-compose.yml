@@ -1,10 +1,10 @@
 services:
 
-# App service definition in the Docker Compose file. It specifies how to build and run the application container from the image defined in the Dockerfile. 
+# App service definition. It runs the latest image pushed to Amazon ECR.
   app:
-
-  # The build context is set to current directory (.), so the Dockerfile in the current directory will be used to build the image for this service.
-    build: .
+    image: ${ECR_REPO}:latest
+    container_name: cumulative-task
+    restart: unless-stopped
 
     # Ports mapping is defined to expose the container's port 80 to the host machine's port 8080. 
     ## This allows access to the application running inside the container from the host machine.

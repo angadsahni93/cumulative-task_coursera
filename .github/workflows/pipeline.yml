@@ -30,3 +30,37 @@ jobs:
         run: |
           docker build -t ${{ secrets.ECR_REPO }}:latest .
           docker push ${{ secrets.ECR_REPO }}:latest
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key.pem
+          chmod 600 ~/.ssh/ec2_key.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      # Copy the Compose file that defines one service/container (services.app), image [${ECR_REPO}:latest], port mapping 8080:80, restart policy unless-stopped, and container name cumulative-task.
+      - name: Copy Docker Compose file to EC2
+        run: |
+          ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} "mkdir -p ~/cumulative-task"
+          scp -i ~/.ssh/ec2_key.pem Docker-compose.yml ubuntu@${{ secrets.EC2_HOST }}:~/cumulative-task/Docker-compose.yml
+
+      - name: Deploy with Docker Compose
+        run: |
+          ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
+            ECR_REPO="${{ secrets.ECR_REPO }}"
+            ECR_REGISTRY=$(echo "$ECR_REPO" | cut -d/ -f1)
+
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+            cd ~/cumulative-task
+            ECR_REPO="$ECR_REPO" docker compose -f Docker-compose.yml pull
+            ECR_REPO="$ECR_REPO" docker compose -f Docker-compose.yml up -d
+          EOF
